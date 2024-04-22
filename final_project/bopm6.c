@@ -55,9 +55,9 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
 
     // Memory allocation for Pm and Cm
     double **tmp = calloc(n , sizeof(double *));
-     for (size_t i = 0; i <= n; i++) {
+    for (size_t i = 0; i <= n; i++) {
         tmp[i] = calloc(n , sizeof(double));
-     }
+    }
 
     // Calculate stock price at each node
     for (size_t j = 0; j <= n; j++) {
@@ -67,29 +67,28 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
     // Initialize values at maturity
     for (size_t j = 0; j <= n; j++) {
         if (PC == 1) { // Put
-             MATRIX_AT(O,j,n) = fmax(K - tmp[j][n], 0);
+            MATRIX_AT(O,j,n) = fmax(K - tmp[j][n], 0);
 
         } else { // Call
-         MATRIX_AT(O,j,n) = fmax(tmp[j][n] - K, 0);
+            MATRIX_AT(O,j,n) = fmax(tmp[j][n] - K, 0);
         }
  
     }
     // Backward induction for option price
     for (int j = n -1; j >= 0; j--) {
         for (size_t i = 0; i <= j; i++) {
-
-     if (AM) {
-            double immediateExercise;
-            if (PC == 1) { // Put
-                immediateExercise = fmax(K - tmp[j][i], 0);
-            } else { // Call
-                immediateExercise = fmax(tmp[j][i] - K, 0);
+            if (AM) {
+                double immediateExercise;
+                if (PC == 1) { // Put
+                    immediateExercise = fmax(K - tmp[j][i], 0);
+                } else { // Call
+                    immediateExercise = fmax(tmp[j][i] - K, 0);
+                }
+                MATRIX_AT(O,i,j) = fmax(exp(-r * dt) * (p * MATRIX_AT(O,i,j + 1) + (1 - p) * MATRIX_AT(O,i + 1,j + 1)), immediateExercise);
+            } else {
+                MATRIX_AT(O,i,j) = exp(-r * dt) * (p * MATRIX_AT(O,i,j + 1) + (1 - p) * MATRIX_AT(O,i + 1,j + 1));
             }
-            MATRIX_AT(O,i,j) = fmax(exp(-r * dt) * (p * MATRIX_AT(O,i,j + 1) + (1 - p) * MATRIX_AT(O,i + 1,j + 1)), immediateExercise);
-        } else {
-            MATRIX_AT(O,i,j) = exp(-r * dt) * (p * MATRIX_AT(O,i,j + 1) + (1 - p) * MATRIX_AT(O,i + 1,j + 1));
         }
-       }
     }
 
     free(tmp);
@@ -107,38 +106,36 @@ int main(int argc, char* const argv[]) {
     int PC = 0; // 0 for call, 1 for put
     int AM=1;
  
-  int opt;
+    int opt;
 
- while ((opt = getopt(argc, argv, "n:s:k:r:v:t:p:a:x")) != -1) {
+    while ((opt = getopt(argc, argv, "n:s:k:r:v:t:p:a:x")) != -1) {
         char* end;
         switch (opt) {
-        case 'n': n = strtoumax(optarg, &end, 10); break;
-        case 's': S = atof(optarg); break;
-        case 'k': K = atof(optarg); break;
-        case 'r': r = atof(optarg); break;
-        case 'v': v = atof(optarg); break;
-        case 't': T = atof(optarg); break;
-        case 'p': PC = atoi(optarg);break;
-        case 'a': AM = atoi(optarg);break;
+            case 'n': n = strtoumax(optarg, &end, 10); break;
+            case 's': S = atof(optarg); break;
+            case 'k': K = atof(optarg); break;
+            case 'r': r = atof(optarg); break;
+            case 'v': v = atof(optarg); break;
+            case 't': T = atof(optarg); break;
+            case 'p': PC = atoi(optarg);break;
+            case 'a': AM = atoi(optarg);break;
+        }
+    }
 
-        }
-        }
-   
     if ((optind + 7 != argc )&&(optind + 0 != argc)){
-          fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] input output\n", argv[0]);
+        fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] input output\n", argv[0]);
         return 1;
     }
 
-  Matrix *O = matrix_create_raw(n+1, n+1);
-  if (!OptionsVal(O,n, S, K, r, v, T, PC,AM)) { fprintf(stderr, "Failed to perform Put Options Price\n"); return 1; }
-   
+    Matrix *O = matrix_create_raw(n+1, n+1);
+    if (!OptionsVal(O,n, S, K, r, v, T, PC,AM)) { fprintf(stderr, "Failed to perform Put Options Price\n"); return 1; }
 
-  // Result extraction
-   if (PC==0)
-   printf("Call options: %.2f\n",MATRIX_AT(O,0,0) );
 
- else
-   printf("Put options: %.2f\n",MATRIX_AT(O,0,0) );
+    // Result extraction
+    if (PC==0)
+        printf("Call options: %.2f\n",MATRIX_AT(O,0,0) );
+    else
+        printf("Put options: %.2f\n",MATRIX_AT(O,0,0) );
 
     return 0;
 }
