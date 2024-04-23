@@ -100,9 +100,16 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
             }
         }
     }
+    //send to device
+    cudaMemcpy(O->data_device, O->data, O->rows * O->cols * sizeof(double), cudaMemcpyHostToDevice);
 
     // Backward induction for option price
-    backward_induction_device<<<>>>(O, n, S, K, r, v, T, PC, AM);
+    int grid_size = (n+1)/32 + 1; // Needs fixing
+    backward_induction_device<<<grid_size, 32>>>(O, n, S, K, r, v, T, PC, AM);
+    cudasynchronize();
+
+    // send results back to host
+    cudaMemcpy(O->data, O->data_device, O->rows * O->cols * sizeof(double), cudaMemcpyDeviceToHost);
 
     // Free memory
     free(tmp);
