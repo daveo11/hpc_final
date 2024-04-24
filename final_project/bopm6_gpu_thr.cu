@@ -4,10 +4,7 @@
  * For this assignment you will write an MPI matrix multiplication.
  * 
  * To compile:
- *     gcc -Wall -O3 -march=native *.c -o bopm_serial -lm
- * 
- * To run on your local machine:
- *    ./bopm_serial
+ *     nvcc -arch=sm_86 -O3 --compiler-options -march=native bopm6.c matrix.c -o bopm6-gpu -lm
  * 
  * this will run with default values
  *
@@ -66,7 +63,7 @@ void backward_induction_device(Matrix* O, size_t n, double S, double K, double r
 
 
 bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, double T, int PC,int AM) {
-   //const size_t n = C->rows;
+    const size_t n = C->rows;
 
     double dt = T / n;
     double u = exp(v * sqrt(dt));
@@ -74,11 +71,12 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
     double p = (exp(r * dt) - d) / (u - d);
 
     matrix_fill_zeros(O);
+
+    double **tmp = cudamalloc(n , sizeof(double *));
     #omp parallel shared(O, n, S, K, r, v, T, PC, AM, u, d, p, dt) private(tmp)
     {
         // Memory allocation for Pm and Cm
         #pragma omp for
-        double **tmp = calloc(n , sizeof(double *));
         for (size_t i = 0; i <= n; i++) {
             tmp[i] = calloc(n , sizeof(double));
         }
@@ -104,9 +102,10 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
     cudaMemcpy(O->data_device, O->data, O->rows * O->cols * sizeof(double), cudaMemcpyHostToDevice);
 
     // Backward induction for option price
-    int grid_size = (n+1)/32 + 1; // Needs fixing
-    backward_induction_device<<<grid_size, 32>>>(O, n, S, K, r, v, T, PC, AM);
-    cudasynchronize();
+    int grid_size_x = (n+1)/32 + 1; // Needs fixing
+    int grid_size_y = (n+1)/32 + 1; // Needs fixing
+    backward_induction_device<<<dim3(grid_size_x, grid_size_y), dim3(8, 8)>>>(O, n, S, K, r, v, T, PC, AM);
+    cudaDeviceSynchronize();
 
     // send results back to host
     cudaMemcpy(O->data, O->data_device, O->rows * O->cols * sizeof(double), cudaMemcpyDeviceToHost);
