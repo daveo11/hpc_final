@@ -4,10 +4,10 @@
  * For this assignment you will write an MPI matrix multiplication.
  * 
  * To compile:
- *     gcc -Wall -O3 -march=native bopm6.c matrix.c util.c -o bopm_serial -lm
+ *     gcc -Wall -O3 -march=native bopm6_p.c matrix.c util.c -o bopm6_p -lm
  * 
  * To run on your local machine:
- *    ./bopm_serial
+ *    ./bopm6_p
  * 
  * this will run with default values
  *
@@ -24,10 +24,10 @@
  * 
  * usage: ./bopm6 [-n num-steps] [-s initial-stock-price] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] -a [american 1 european 0]input output
  *  
- * american put ./bopm_serial -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 1 -a 1
- * american call ./bopm_serial -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 0 -a 1
- * european put ./bopm_serial -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 1 -a 0
- * european call ./bopm_serial -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 0 -a 0
+ * american put ./bopm6_p -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 1 -a 1
+ * american call ./bopm6_p -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 0 -a 1
+ * european put ./bopm6_p -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 1 -a 0
+ * european call ./bopm6_p -n 1000 -s 85 -k 90 -r 0.03 -v 0.2 -t 1 -p 0 -a 0
  * 
  * https://github.com/padraic00/Binomial-Options-Pricing-Model/tree/master (python)
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
@@ -55,26 +55,35 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
 
     // Memory allocation for Pm and Cm
     double **tmp = calloc(n , sizeof(double *));
-    for (size_t i = 0; i <= n; i++) {
-        tmp[i] = calloc(n , sizeof(double));
-    }
-
-    // Calculate stock price at each node
-    for (size_t j = 0; j <= n; j++) {
-        tmp[j][n] = S * pow(u, n - j) * pow(d, j);
-    }
-
-    // Initialize values at maturity
-    for (size_t j = 0; j <= n; j++) {
-        if (PC == 1) { // Put
-            MATRIX_AT(O,j,n) = fmax(K - tmp[j][n], 0);
-
-        } else { // Call
-            MATRIX_AT(O,j,n) = fmax(tmp[j][n] - K, 0);
+    #pragma omp parallel default(none) \
+    shared(tmp, n, S, u, d, K, PC, O) \
+    num_threads(omp_get_max_threads())
+    {
+        // Memory allocation for Pm and Cm
+        #pragma omp for
+        for (size_t i = 0; i <= n; i++) {
+            tmp[i] = calloc(n , sizeof(double));
         }
- 
+
+        // Calculate stock price at each node
+        #pragma omp for
+        for (size_t j = 0; j <= n; j++) {
+            tmp[j][n] = S * pow(u, n - j) * pow(d, j);
+        }
+
+        // Initialize values at maturity
+        #pragma omp for
+        for (size_t j = 0; j <= n; j++) {
+            if (PC == 1) { // Put
+                MATRIX_AT(O,j,n) = fmax(K - tmp[j][n], 0);
+
+            } else { // Call
+                MATRIX_AT(O,j,n) = fmax(tmp[j][n] - K, 0);
+            }
+        }
     }
     // Backward induction for option price
+    #pragma omp for 
     for (int j = n -1; j >= 0; j--) {
         for (size_t i = 0; i <= j; i++) {
             if (AM) {
