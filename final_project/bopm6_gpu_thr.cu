@@ -72,8 +72,10 @@ bool OptionsVal(Matrix* O, size_t n,double S, double K, double r, double v, doub
 
     matrix_fill_zeros(O);
 
-    double **tmp = cudamalloc(n , sizeof(double *));
-    #omp parallel shared(O, n, S, K, r, v, T, PC, AM, u, d, p, dt) private(tmp)
+    double **tmp = malloc(n , sizeof(double *));
+    #pragma omp parallel default(none) \
+    shared(tmp, n, S, u, d, K, PC, O) \
+    num_threads(omp_get_max_threads())
     {
         // Memory allocation for Pm and Cm
         #pragma omp for
