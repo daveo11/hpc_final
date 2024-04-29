@@ -20,11 +20,15 @@
  * double v = 0.2; // Volatility (for 2%)
  * double T = 1; // Time to maturity (1=1 year)
  * int PC = 1; // 0 for call, 1 for put
- * int AM=1; //American = 1 European=0(not 1)
+ * int AM=1; //American = 1 European=0
+ * 
+ * threads defaults to 8... can be changed with -c parameter
+ * 
+ * american put with 16 threads ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 -c 16
  * 
  * to change values run with these params:
  * 
- * usage: ./bopm-openmp [-n num-steps] [-s initial-stock-price] [-q dividend-yield] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call(1 or 0)] -a [american 1 european 0] -c [threads]input output
+ * usage: ./bopm-openmp [-n num-steps] [-s initial-stock-price] [-q dividend-yield] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call(1 or 0)] -a [american 1 european 0] -c[threads] input output
  *  
  * american put ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 
  * american call ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 1 
@@ -60,21 +64,21 @@
 #endif
 
 
-typedef bool (*options_val_func)(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM);
+typedef bool (*options_val_func)(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM,int threads);
 
 double time_options_val_func(const char* label, options_val_func func,
-                             Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM) {
+                             Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM,int threads) {
     struct timespec start, end;
     printf("%s", label);
     fflush(stdout);
-    func(O, n, S, q, K, r, v, T, PC, AM); // run the function once just to make sure the CPU is "warmed up"
+    func(O, n, S, q, K, r, v, T, PC, AM,threads); // run the function once just to make sure the CPU is "warmed up"
     // We take the minimum across several runs
     double best_time = 0;
     for (int run = 0; run < NUM_RUNS; run++) {
         // We take the average across a few iterations
         clock_gettime(CLOCK_MONOTONIC, &start); // get the start time
         for (int iter = 0; iter < NUM_ITER_PER_RUN; iter++) {
-            func(O, n, S, q, K, r, v, T, PC, AM); // code that gets timed
+            func(O, n, S, q, K, r, v, T, PC, AM,threads); // code that gets timed
         }
         clock_gettime(CLOCK_MONOTONIC, &end); // get the end time
         double time = get_time_diff(&start, &end) / NUM_ITER_PER_RUN; // compute average difference
@@ -87,7 +91,7 @@ double time_options_val_func(const char* label, options_val_func func,
     return best_time;
 }
 
-bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM) {
+bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM,int threads) {
     double dt = T / n;
     double u = exp((r - q) * dt + v * sqrt(dt));
     double d = exp((r - q) * dt - v * sqrt(dt));
@@ -116,7 +120,7 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
     }
 
    // printf("%d",omp_get_max_threads());
-  #pragma omp parallel for shared(tmp,n,S,u,d) default(none) num_threads(8)
+  #pragma omp parallel for shared(tmp,n,S,u,d) default(none) num_threads(threads)
 //change threads to test times
     // Initialize stock price array
     for (size_t i = 0; i <= n; i++) {
@@ -182,6 +186,138 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
     return true;
 }
 
+void parse_arguments(int argc, char* const argv[], int n, double  S, double K, double q, double r, double v, double T, int PC, int AM) {
+    int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
+        char* end;
+        switch (opt) {
+        case 'n': {
+            long val = strtol(optarg, &end, 10);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -n\n");
+                exit(1);
+            }
+            n = val;
+            n_flag = 1;
+            break;
+        }
+        case 's': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -s\n");
+                exit(1);
+            }
+            S = val;
+            s_flag = 1;
+            break;
+        }
+        case 'q': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -q\n");
+                exit(1);
+            }
+            q = val;
+            q_flag = 1;
+            break;
+        }
+        case 'k': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -k\n");
+                exit(1);
+            }
+            K = val;
+            k_flag = 1;
+            break;
+        }
+        case 'r': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -r\n");
+                exit(1);
+            }
+            r = val;
+            r_flag = 1;
+            break;
+        }
+        case 'v': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -v\n");
+                exit(1);
+            }
+            v = val;
+            v_flag = 1;
+            break;
+        }
+        case 't': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -t\n");
+                exit(1);
+            }
+            T = val;
+            t_flag = 1;
+            break;
+        }
+        case 'p': {
+
+         char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -p\n");
+                exit(1);
+            }
+           // int val2 = atoi(optarg);
+
+            if (val != 0 && val != 1) {
+                fprintf(stderr, "Error: Invalid value provided for -p (must be 0 or 1)\n");
+                exit(1);
+            }
+            PC = val;
+            p_flag = 1;
+            break;
+        }
+        case 'a': {
+
+         char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -a\n");
+                exit(1);
+            }
+   
+            //int val2 = atoi(optarg);
+            if (val != 0 && val != 1) {
+                fprintf(stderr, "Error: Invalid value provided for -a (must be 0 or 1)\n");
+                exit(1);
+            }
+            AM = val;
+            a_flag = 1;
+            break;
+        }
+        default:
+            fprintf(stderr, "Unknown option: %c\n", opt);
+            exit(1);
+        }
+    }
+
+    if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
+        fprintf(stderr, "Error: Not all required arguments are provided.\n");
+        fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
+        exit(1);
+    }
+}
+
 int main(int argc, char* const argv[]) {
    int n = 1000; // Number of steps
    double S = 100; // Initial stock price
@@ -191,52 +327,24 @@ int main(int argc, char* const argv[]) {
    double v = 0.2; // Volatility
    double T = 1; // Time to maturity
    int PC = 1; // 0 for call, 1 for put
-   int AM=1;//American = 1 European=0(not 1)
- 
-   int n_flag = 0,s_flag=0,q_flag=0,k_flag=0,r_flag=0,v_flag=0,t_flag=0,p_flag=0,a_flag=0;
-    
-   int opt;
- 
-    while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
-        char* end;
-        switch (opt) {
-        case 'n': n = strtoumax(optarg, &end, 10); n_flag=1; break;
-        case 's': S = atof(optarg); s_flag=1;break;
-        case 'q': q = atof(optarg); q_flag=1;break;
-        case 'k': K = atof(optarg); k_flag=1;break;
-        case 'r': r = atof(optarg);r_flag=1; break;
-        case 'v': v = atof(optarg); v_flag=1;break;
-        case 't': T = atof(optarg);t_flag=1; break;
-        case 'p': PC = atoi(optarg);p_flag=1;break;
-        case 'a': AM = atoi(optarg);a_flag=1;break;
-        default:
-        fprintf(stderr,"Unknown option:%c\n",opt);
-        }
-    }
+   int AM=1;//American = 1 European=0
+   
+       parse_arguments(argc, argv, n, S, K, q, r, v, T, PC, AM);
 
-    if (argc > 1)
-    {
-        if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
-            fprintf(stderr, "Error: Not all required arguments are provided.\n");
-            fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
-            return 1;
-        }
-    }
-     const char* optionType;
+
+   //int threads=omp_get_max_threads();
+
+   int threads=8;
+
+    const char* optionType;
     const char* exerciseType;
 
-    if (PC == 0) {
-        optionType = "Call";
-    } else {
-        optionType = "Put";
-    }
+    optionType=(PC==0)?"Call":"Put";
+    exerciseType=(AM==1)?"American":"European";
 
-    if (AM == 1) {
-        exerciseType = "American";
-    } else {
-        exerciseType = "European";
-    }
  // Displaying each argument one line for each
+    printf("Threads: %d\n", threads);
+ 
     printf("Number of steps: %d\n", n);
     printf("Initial stock price: %.2f\n", S);
     printf("Strike price: %.2f\n", K);
@@ -246,9 +354,6 @@ int main(int argc, char* const argv[]) {
     printf("Time to maturity: %.2f\n", T);
     printf("Calculating %s %s options\n", exerciseType, optionType);
 
-
-
-
     Matrix *O = matrix_create_raw(n+1, n+1);
 
 
@@ -256,7 +361,7 @@ int main(int argc, char* const argv[]) {
    // clock_gettime(CLOCK_MONOTONIC,&start);
         // Calculate option price
 
-     if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
+     if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM,threads)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
    // clock_gettime(CLOCK_MONOTONIC,&end);
    // double time =get_time_diff(&start,&end);
    // print_time(time);
@@ -283,12 +388,12 @@ int main(int argc, char* const argv[]) {
 
    
 printf("\n");
-
     printf("%s %s options: %.2f\n", exerciseType, optionType, MATRIX_AT(O, 0, 0));
-
 printf("\n");
 
-   time_options_val_func("bopm-openmp: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM);
+
+
+   time_options_val_func("bopm-openmp: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM,threads);
 
 
 

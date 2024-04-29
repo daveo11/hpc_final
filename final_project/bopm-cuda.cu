@@ -31,10 +31,10 @@
  * 
  * usage: ./bopm-cuda [-n num-steps] [-s initial-stock-price] [-q dividend-yield] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call(1 or 0)] -a [american 1 european 0]input output
  *  
- * american put ./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 
- * american call ./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 1 
- * european put ./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 0 
- * european call ./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 0 
+ * american put ./bopm-cuda -n 10000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 
+ * american call ./bopm-cuda -n 10000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 1 
+ * european put ./bopm-cuda -n 10000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 0 
+ * european call ./bopm-cuda -n 10000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 0 
  * 
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
  * https://www.unisalento.it/documents/20152/615419/Option+Pricing+-+A+Simplified+Approach.pdf
@@ -70,77 +70,100 @@
 
 
 template<typename T>
-__global__ void options_val_cuda_kernel(T *O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM, int level) {
-    double dt = TM / n;
-    double u = exp((r - q) * dt + v * sqrt(dt));
-    double d = exp((r - q) * dt - v * sqrt(dt));
-    double p = (exp((r - q) * dt) - d) / (u - d);
+__global__ void init(T *O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM) {
+   double dt = TM / n;
+   double u = exp((r - q) * dt + v * sqrt(dt));
+   double d = exp((r - q) * dt - v * sqrt(dt));
+   double p = (exp((r - q) * dt) - d) / (u - d);
 
-    int i = n - level; // Calculate the current level
-
-    // Calculate stock price at each node for this thread
-    for (int j = threadIdx.x; j <= i; j += blockDim.x) {
-        double Pm = S * pow(u, i - j) * pow(d, j);
-        if (PC == 1) { // Put
-            O[j] = fmax(0, K - Pm); // American Put option value at maturity
-        } else { // Call
-            O[j] = fmax(0, Pm - K); // American Call option value at maturity
-        }
-    }
-
-    __syncthreads();
-
-    // Backward induction for option price
-    for (int j = threadIdx.x; j <= i; j += blockDim.x) {
-        double immediateExercise;
-        if (AM) {
-            // American option: consider immediate exercise
-            if (PC == 1) { // Put
-                immediateExercise = fmax(0, K - S * pow(u, i - j) * pow(d, j)); // Immediate exercise value
-            } else { // Call
-                immediateExercise = fmax(0, S * pow(u, i - j) * pow(d, j) - K); // Immediate exercise value
-            }
-            // Compare immediate exercise with continuation value
-            double continuationValue = exp(-r * dt) * (p * O[j] + (1 - p) * O[j + 1]);
-            O[j] = fmax(immediateExercise, continuationValue);
-        } else {
-            // European option: only consider continuation value
-            O[j] = exp(-r * dt) * (p * O[j] + (1 - p) * O[j + 1]);
-        }
-    }
+   // Calculate stock price at each node for this thread
+   size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < n) {
+       double Pm = S * pow(u, n - tid) * pow(d, tid);
+       if (PC == 1) { // Put
+           O[tid] = fmax(0, K - Pm); // American Put option value at maturity
+       } else { // Call
+           O[tid] = fmax(0, Pm - K); // American Call option value at maturity
+       }
+   }
 }
+
+template<typename T>
+__global__ void backward(T *O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM,
+			 int level) {
+   // Backward induction for option price
+   double dt = TM / n;
+   double u = exp((r - q) * dt + v * sqrt(dt));
+   double d = exp((r - q) * dt - v * sqrt(dt));
+   double p = (exp((r - q) * dt) - d) / (u - d);
+
+   size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   
+       int i = level;
+       if (tid < i) {
+           double immediateExercise;
+           if (AM) {
+               // American option: consider immediate exercise
+               if (PC == 1) { // Put
+                   immediateExercise = fmax(0, K - S * pow(u, i - tid) * pow(d, tid)); // Immediate exercise value
+               } else { // Call
+                   immediateExercise = fmax(0, S * pow(u, i - tid) * pow(d, tid) - K); // Immediate exercise value
+               }
+               // Compare immediate exercise with continuation value
+               O[tid] = fmax(immediateExercise, exp(-r * dt) * (p * O[tid] + (1 - p) * O[tid + 1]));
+           } else {
+               // European option: only consider continuation value
+               O[tid] = exp(-r * dt) * (p * O[tid] + (1 - p) * O[tid + 1]);
+           }
+   }
+}
+
+
+
 template<typename T>
 void options_val_cuda(Matrix<T>& O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM) {
-    T *d_O; // Pointer for GPU memory
+     T *d_O; // Pointer for GPU memory
     T* O_data = O.data;
 
-    // Allocate memory on GPU
-    cudaMalloc((void**)&d_O, sizeof(T) * (n + 1));
 
-    // Copy data from CPU to GPU
+   // Allocate memory on GPU
+   cudaMalloc((void**)&d_O, sizeof(T) * (n + 1));
+
+   // Copy data from CPU to GPU
+//   cudaMemcpy(d_O, O, sizeof(T) * (n + 1), cudaMemcpyHostToDevice);
     cudaMemcpy(d_O, O_data, sizeof(T) * (n + 1), cudaMemcpyHostToDevice);
+   // Define block size (number of threads per block)
+   constexpr int blockSize = 128; // Adjust as needed
 
-    // Define block size (number of threads per block)
-    constexpr int blockSize = 128; // Adjust as needed
+   // Calculate grid size based on the total number of elements (n + 1)
+   int gridSize = (n + blockSize - 1) / blockSize;
 
-    // Calculate grid size based on the total number of elements (n + 1)
-    int gridSize = (n + blockSize - 1) / blockSize;
+   // Invoke kernel
+  // options_val_cuda_kernel<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM);
+
 
     // Invoke kernel
-   // options_val_cuda_kernel<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM);
+    init<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM);
 
-  for (int level = n - 1; level >= 0; --level) {
-    options_val_cuda_kernel<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM,level);
-        cudaDeviceSynchronize(); // Wait for the kernel to finish
-      }
+    for (int i = n-1; i > 0; i--) {
+          gridSize = (i + blockSize - 1) / blockSize;
+	  backward<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM,i);
+    }
 
 
 
-    // Copy results from GPU to CPU
+
+
+
+
+
+
+
+   // Copy results from GPU to CPU
+//   cudaMemcpy(O, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
     cudaMemcpy(O_data, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
-
-    // Free GPU memory
-    cudaFree(d_O);
+   // Free GPU memory
+   cudaFree(d_O);
 }
 
 template<typename T>

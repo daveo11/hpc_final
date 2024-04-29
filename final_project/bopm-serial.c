@@ -8,7 +8,7 @@
  *     gcc -Wall -O3 -march=native bopm-serial.c matrix.c util.c  -o bopm-serial -lm
  * 
  * To run on your local machine:
- *    ./bopm_serial
+ *    ./bopm-serial
  * 
  * this will run with default values
  *
@@ -20,7 +20,7 @@
  * double v = 0.2; // Volatility (for 2%)
  * double T = 1; // Time to maturity (1=1 year)
  * int PC = 1; // 0 for call, 1 for put
- * int AM=1; //American = 1 European=0(not 1)
+ * int AM=1; //American = 1 European=0
  * 
  * to change values run with these params:
  * 
@@ -158,7 +158,137 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
 
     return true;
 }
+void parse_arguments(int argc, char* const argv[], int n, double  S, double K, double q, double r, double v, double T, int PC, int AM) {
+    int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
 
+    int opt;
+    while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
+        char* end;
+        switch (opt) {
+        case 'n': {
+            long val = strtol(optarg, &end, 10);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -n\n");
+                exit(1);
+            }
+            n = val;
+            n_flag = 1;
+            break;
+        }
+        case 's': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -s\n");
+                exit(1);
+            }
+            S = val;
+            s_flag = 1;
+            break;
+        }
+        case 'q': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -q\n");
+                exit(1);
+            }
+            q = val;
+            q_flag = 1;
+            break;
+        }
+        case 'k': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -k\n");
+                exit(1);
+            }
+            K = val;
+            k_flag = 1;
+            break;
+        }
+        case 'r': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -r\n");
+                exit(1);
+            }
+            r = val;
+            r_flag = 1;
+            break;
+        }
+        case 'v': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -v\n");
+                exit(1);
+            }
+            v = val;
+            v_flag = 1;
+            break;
+        }
+        case 't': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -t\n");
+                exit(1);
+            }
+            T = val;
+            t_flag = 1;
+            break;
+        }
+        case 'p': {
+
+         char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -p\n");
+                exit(1);
+            }
+           // int val2 = atoi(optarg);
+
+            if (val != 0 && val != 1) {
+                fprintf(stderr, "Error: Invalid value provided for -p (must be 0 or 1)\n");
+                exit(1);
+            }
+            PC = val;
+            p_flag = 1;
+            break;
+        }
+        case 'a': {
+
+         char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -a\n");
+                exit(1);
+            }
+   
+            //int val2 = atoi(optarg);
+            if (val != 0 && val != 1) {
+                fprintf(stderr, "Error: Invalid value provided for -a (must be 0 or 1)\n");
+                exit(1);
+            }
+            AM = val;
+            a_flag = 1;
+            break;
+        }
+        default:
+            fprintf(stderr, "Unknown option: %c\n", opt);
+            exit(1);
+        }
+    }
+
+    if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
+        fprintf(stderr, "Error: Not all required arguments are provided.\n");
+        fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
+        exit(1);
+    }
+}
 int main(int argc, char* const argv[]) {
     int n = 1000; // Number of steps
     double S = 100; // Initial stock price
@@ -168,36 +298,40 @@ int main(int argc, char* const argv[]) {
     double v = 0.2; // Volatility
     double T = 1; // Time to maturity
     int PC = 1; // 0 for call, 1 for put
-    int AM=1;//American = 1 European=0(not 1)
+    int AM=1;//American = 1 European=0
  
-    int n_flag = 0,s_flag=0,q_flag=0,k_flag=0,r_flag=0,v_flag=0,t_flag=0,p_flag=0,a_flag=0;
+
+    parse_arguments(argc, argv, n, S, K, q, r, v, T, PC, AM);
+
+
+   // int n_flag = 0,s_flag=0,q_flag=0,k_flag=0,r_flag=0,v_flag=0,t_flag=0,p_flag=0,a_flag=0;
     
-    int opt;
-    while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
-            char* end;
-            switch (opt) {
-            case 'n': n = strtoumax(optarg, &end, 10); n_flag=1; break;
-            case 's': S = atof(optarg); s_flag=1;break;
-            case 'q': q = atof(optarg); q_flag=1;break;
-            case 'k': K = atof(optarg); k_flag=1;break;
-            case 'r': r = atof(optarg);r_flag=1; break;
-            case 'v': v = atof(optarg); v_flag=1;break;
-            case 't': T = atof(optarg);t_flag=1; break;
-            case 'p': PC = atoi(optarg);p_flag=1;break;
-            case 'a': AM = atoi(optarg);a_flag=1;break;
-            default:
-            fprintf(stderr,"Unknown option:%c\n",opt);
-            }
-        }
+   // int opt;
+   // while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
+   //         char* end;
+   //         switch (opt) {
+   //         case 'n': n = strtoumax(optarg, &end, 10); n_flag=1; break;
+   //         case 's': S = atof(optarg); s_flag=1;break;
+   //         case 'q': q = atof(optarg); q_flag=1;break;
+   //         case 'k': K = atof(optarg); k_flag=1;break;
+   //         case 'r': r = atof(optarg);r_flag=1; break;
+   //         case 'v': v = atof(optarg); v_flag=1;break;
+   //         case 't': T = atof(optarg);t_flag=1; break;
+   //         case 'p': PC = atoi(optarg);p_flag=1;break;
+   //         case 'a': AM = atoi(optarg);a_flag=1;break;
+    //        default:
+   //         fprintf(stderr,"Unknown option:%c\n",opt);
+   //         }
+    //    }
     
-        if (argc > 1)
-        {
-            if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
-                fprintf(stderr, "Error: Not all required arguments are provided.\n");
-                fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
-            return 1;
-            }
-        }
+    //    if (argc > 1)
+    //    {
+    //        if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
+    //            fprintf(stderr, "Error: Not all required arguments are provided.\n");
+    //            fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
+    //        return 1;
+    //        }
+     //   }
 
         
     const char* optionType;
@@ -230,9 +364,9 @@ int main(int argc, char* const argv[]) {
   //  printf("\n");
     //time_options_val_func("bopm-serial: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM);
 
-    printf("\n");
+printf("\n");
     printf("%s %s options: %.2f\n", exerciseType, optionType, MATRIX_AT(O, 0, 0));
-    printf("\n");
+printf("\n");
 
 
     time_options_val_func("bopm-serial: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM);
