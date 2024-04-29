@@ -39,7 +39,8 @@
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
  * https://www.unisalento.it/documents/20152/615419/Option+Pricing+-+A+Simplified+Approach.pdf
  * https://github.com/padraic00/Binomial-Options-Pricing-Model/tree/master
- * 
+ * https://leimao.github.io/blog/Proper-CUDA-Error-Checking/ 
+ *
  * verified calculations are corrrect based on:
  * https://math.columbia.edu/~smirnov/options13.html
  * 
@@ -68,130 +69,123 @@
 #endif
 
 
+// Function to check for CUDA errors
+#define CUDA_CHECK_ERROR(err) \
+    if (err != cudaSuccess) { \
+        std::cerr << "CUDA error: " << cudaGetErrorString(err) << " at line " << __LINE__ << std::endl; \
+        exit(-1); \
+    }
+
+
+// Constants stored in constant memory
+__constant__ double d_constants[7]; // S, q, K, r, v, TM, PC
+
+
 
 template<typename T>
-__global__ void init(T *O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM) {
-   double dt = TM / n;
-   double u = exp((r - q) * dt + v * sqrt(dt));
-   double d = exp((r - q) * dt - v * sqrt(dt));
-   double p = (exp((r - q) * dt) - d) / (u - d);
+__global__ void backward(const T *input, T *output, size_t n, int AM) {
+   double dt = d_constants[5] / n; // TM
+   double u = exp((d_constants[3] - d_constants[1]) * dt + d_constants[4] * sqrt(dt)); // r, q, v
+   double d = exp((d_constants[3] - d_constants[1]) * dt - d_constants[4] * sqrt(dt)); // r, q, v
+   double p = (exp((d_constants[3] - d_constants[1]) * dt) - d) / (u - d); // r, q
 
-   // Calculate stock price at each node for this thread
    size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
-   if (tid < n) {
-       double Pm = S * pow(u, n - tid) * pow(d, tid);
-       if (PC == 1) { // Put
-           O[tid] = fmax(0, K - Pm); // American Put option value at maturity
-       } else { // Call
-           O[tid] = fmax(0, Pm - K); // American Call option value at maturity
+   if (tid <= n) { // Changed '<' to '<=' to include the last element
+       for (int i = n; i > 0; i--) { // Changed 'n - 1' to 'n' to cover the entire range
+           double immediateExercise;
+           if (AM) {
+               if (d_constants[6] == 1) { // PC
+                   immediateExercise = fmax(0, d_constants[2] - d_constants[0] * pow(u, i - tid) * pow(d, tid)); // S, K
+               } else {
+                   immediateExercise = fmax(0, d_constants[0] * pow(u, i - tid) * pow(d, tid) - d_constants[2]); // S, K
+               }
+               output[tid] = fmax(immediateExercise, exp(-d_constants[3] * dt) * (p * input[tid] + (1 - p) * input[tid + 1])); // r
+           } else {
+               output[tid] = exp(-d_constants[3] * dt) * (p * input[tid] + (1 - p) * input[tid + 1]); // r
+           }
+       }
+   }
+}
+template<typename T>
+__global__ void options_val_cuda_init(T *output, size_t n, int AM) {
+   double dt = d_constants[5] / n; // TM
+   double u = exp((d_constants[3] - d_constants[1]) * dt + d_constants[4] * sqrt(dt)); // r, q, v
+   double d = exp((d_constants[3] - d_constants[1]) * dt - d_constants[4] * sqrt(dt)); // r, q, v
+   double p = (exp((d_constants[3] - d_constants[1]) * dt) - d) / (u - d); // r, q
+
+   size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid <= n) { // Changed '<' to '<=' to include the last element
+       double Pm = d_constants[0] * pow(u, n - tid) * pow(d, tid); // S
+       if (d_constants[6] == 1) { // PC
+           output[tid] = fmax(0, d_constants[2] - Pm); // K
+       } else {
+           output[tid] = fmax(0, Pm - d_constants[2]); // K
        }
    }
 }
 
-template<typename T>
-__global__ void backward(T *O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM,
-			 int level) {
-   // Backward induction for option price
-   double dt = TM / n;
-   double u = exp((r - q) * dt + v * sqrt(dt));
-   double d = exp((r - q) * dt - v * sqrt(dt));
-   double p = (exp((r - q) * dt) - d) / (u - d);
-
-   size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
-   
-       int i = level;
-       if (tid < i) {
-           double immediateExercise;
-           if (AM) {
-               // American option: consider immediate exercise
-               if (PC == 1) { // Put
-                   immediateExercise = fmax(0, K - S * pow(u, i - tid) * pow(d, tid)); // Immediate exercise value
-               } else { // Call
-                   immediateExercise = fmax(0, S * pow(u, i - tid) * pow(d, tid) - K); // Immediate exercise value
-               }
-               // Compare immediate exercise with continuation value
-               O[tid] = fmax(immediateExercise, exp(-r * dt) * (p * O[tid] + (1 - p) * O[tid + 1]));
-           } else {
-               // European option: only consider continuation value
-               O[tid] = exp(-r * dt) * (p * O[tid] + (1 - p) * O[tid + 1]);
-           }
-   }
+// Function to initialize constant memory
+void init_constants(double S, double q, double K, double r, double v, double TM, int PC) {
+   double constants[7] = {S, q, K, r, v, TM, PC};
+   cudaMemcpyToSymbol(d_constants, constants, sizeof(double) * 7);
 }
-
-
 
 template<typename T>
 void options_val_cuda(Matrix<T>& O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM) {
-     T *d_O; // Pointer for GPU memory
-    T* O_data = O.data;
+   // Initialize constants in constant memory
+   init_constants(S, q, K, r, v, TM, PC);
 
+   T *d_O;
+   T* O_data = O.data;
 
-   // Allocate memory on GPU
    cudaMalloc((void**)&d_O, sizeof(T) * (n + 1));
+   CUDA_CHECK_ERROR(cudaGetLastError());
 
-   // Copy data from CPU to GPU
-//   cudaMemcpy(d_O, O, sizeof(T) * (n + 1), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_O, O_data, sizeof(T) * (n + 1), cudaMemcpyHostToDevice);
-   // Define block size (number of threads per block)
+
    constexpr int blockSize = 128; // Adjust as needed
-
-   // Calculate grid size based on the total number of elements (n + 1)
    int gridSize = (n + blockSize - 1) / blockSize;
 
-   // Invoke kernel
-  // options_val_cuda_kernel<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM);
+   // Initialize input array
+   options_val_cuda_init<<<gridSize, blockSize>>>(d_O, n, AM);
+    CUDA_CHECK_ERROR(cudaGetLastError());
+    CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
+   // Perform backward induction
+   backward<<<gridSize, blockSize>>>(d_O, d_O, n, AM);
+    CUDA_CHECK_ERROR(cudaGetLastError());
+    CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
-    // Invoke kernel
-    init<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM);
+   // Copy the final result back to the CPU
+   cudaMemcpy(O_data, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_ERROR(cudaGetLastError());
 
-    for (int i = n-1; i > 0; i--) {
-          gridSize = (i + blockSize - 1) / blockSize;
-	  backward<<<gridSize, blockSize>>>(d_O, n, S, q, K, r, v, TM, PC, AM,i);
-    }
-
-
-
-
-
-
-
-
-
-
-   // Copy results from GPU to CPU
-//   cudaMemcpy(O, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
-    cudaMemcpy(O_data, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
    // Free GPU memory
    cudaFree(d_O);
 }
 
 template<typename T>
 void options_val_cuda_memonly(Matrix<T>& O, size_t n, double S, double q, double K, double r, double v, double TM, int PC, int AM) {
-    T *d_O; // Pointer for GPU memory
-    T* O_data = O.data;
+   // Initialize constants in constant memory
+   init_constants(S, q, K, r, v, TM, PC);
 
-    // Allocate memory on GPU
-    cudaMalloc((void**)&d_O, sizeof(T) * (n + 1));
+   T *d_O;
+   T* O_data = O.data;
 
-    // Copy data from CPU to GPU
-    cudaMemcpy(d_O, O_data, sizeof(T) * (n + 1), cudaMemcpyHostToDevice);
+   cudaMalloc((void**)&d_O, sizeof(T) * (n + 1));
+   CUDA_CHECK_ERROR(cudaGetLastError());
 
-    // Define block size (number of threads per block)
-    //constexpr int blockSize = 128; // Adjust as needed
 
-    // Calculate grid size based on the total number of elements (n + 1)
-   // int gridSize = (n + blockSize - 1) / blockSize;
+   constexpr int blockSize = 128; // Adjust as needed
+   int gridSize = (n + blockSize - 1) / blockSize;
 
-    //removed kernel call
+ 
+   // Copy the final result back to the CPU
+   cudaMemcpy(O_data, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_ERROR(cudaGetLastError());
 
-    // Copy results from GPU to CPU
-    cudaMemcpy(O_data, d_O, sizeof(T) * (n + 1), cudaMemcpyDeviceToHost);
-
-    // Free GPU memory
-    cudaFree(d_O);
+   // Free GPU memory
+   cudaFree(d_O);
 }
-
 
 
 /**

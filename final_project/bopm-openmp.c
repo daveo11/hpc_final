@@ -18,7 +18,7 @@
  * double r = 0.05; // Risk-free rate (for 5%)
  * double q = 0.03; //dividend yield (for 3%)
  * double v = 0.2; // Volatility (for 2%)
- * double T = 1; // Time to maturity (1=1 year)
+ * double T = 1; // Time to maturity (1=1 year)(use decimal for fraction of year 0.08333(~1 month))
  * int PC = 1; // 0 for call, 1 for put
  * int AM=1; //American = 1 European=0
  * 
@@ -37,7 +37,7 @@
  * 
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
  * https://www.unisalento.it/documents/20152/615419/Option+Pricing+-+A+Simplified+Approach.pdf
- * https://github.com/padraic00/Binomial-Options-Pricing-Model/tree/master
+ * https://www.codearmo.com/python-tutorial/options-trading-binomial-pricing-model
  * 
  * verified calculations are corrrect based on:
  * https://math.columbia.edu/~smirnov/options13.html
@@ -63,6 +63,10 @@
 #define NUM_ITER_PER_RUN 2 // we take the average across this number of iterations for each run
 #endif
 
+
+/**
+ * Time a options value function.
+ */
 
 typedef bool (*options_val_func)(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM,int threads);
 
@@ -91,7 +95,15 @@ double time_options_val_func(const char* label, options_val_func func,
     return best_time;
 }
 
+
+/**
+ * Binomial lattice model for option pricing function.
+ * The option value will be in the matrix at (0,0) when the
+ * backward induction loop completes.
+ * 
+ */
 bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM,int threads) {
+    //calculate (u)p (d)own factors, dt(length of each time step) and p(probability of up movement)
     double dt = T / n;
     double u = exp((r - q) * dt + v * sqrt(dt));
     double d = exp((r - q) * dt - v * sqrt(dt));
@@ -119,9 +131,8 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
         }
     }
 
-   // printf("%d",omp_get_max_threads());
   #pragma omp parallel for shared(tmp,n,S,u,d) default(none) num_threads(threads)
-//change threads to test times
+    //change threads to taylor to machine hardware
     // Initialize stock price array
     for (size_t i = 0; i <= n; i++) {
 
@@ -130,15 +141,7 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
         }
     }
 
-    //num_threads(8)
     // Calculate option values at maturity
-     //#pragma omp parallel for default(none) shared(tmp, n, S, u, d, O, PC, AM, p, dt,K,r) num_threads(8)
-        // num_threads(omp_get_max_threads())
-
-   //{
-   // #pragma omp for
-   // #pragma omp parallel for shared(O,tmp,n,PC) default(none) num_threads(16)
-
     for (size_t j = 0; j <= n; j++) {
         if (PC == 1) { // Put
             MATRIX_AT(O, j, n) = fmax(0, K - tmp[j][n]); // Put option value
@@ -146,14 +149,8 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
             MATRIX_AT(O, j, n) = fmax(0, tmp[j][n] - K); // Call option value
         }
     }
-//}
-//#pragma omp for
     // Backward induction to calculate option values at earlier time steps
    //leave int for neg
-  //  #pragma omp parallel for default(none) schedule(static) shared(tmp, n, S, u, d, O, PC, AM, p, dt,K,r) num_threads(16)
-//#pragma omp for
-   // #pragma omp parallel for shared(O,tmp,n,PC,AM,p,dt,K,r) default(none) num_threads(16)
-
     for (int i = n - 1; i >= 0; i--) {
 
         for (size_t j = 0; j <= i; j++) {
@@ -174,10 +171,7 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
         }
     }
     
-  // }
     // Free allocated memory
-      //  #pragma omp parallel for shared(tmp) default(none) 
-
     for (size_t i = 0; i <= n; i++) {
         free(tmp[i]);
     }
@@ -186,6 +180,7 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
 }
 
 int main(int argc, char* const argv[]) {
+   //set default values
    int n = 1000; // Number of steps
    double S = 100; // Initial stock price
    double K = 100; // Strike price
@@ -196,10 +191,17 @@ int main(int argc, char* const argv[]) {
    int PC = 1; // 0 for call, 1 for put
    int AM=1;//American = 1 European=0
    
- int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
+   //flags to identify if all arguments are added 
+   int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
+   //opm_get_max_threads for information
+   int aThreads=omp_get_max_threads();
 
+   //default to 8 threads can be modified to match capabilities of hardware
+   int threads=8;
+   
+    //parse input args
     int opt;
-    while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
+    while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:c:")) != -1) {
         char* end;
         switch (opt) {
         case 'n': {
@@ -278,6 +280,17 @@ int main(int argc, char* const argv[]) {
             t_flag = 1;
             break;
         }
+             case 'c': {
+            char* end;
+            double val = strtod(optarg, &end);
+            if (*end != '\0') {
+                fprintf(stderr, "Error: Non-numeric value provided for -t\n");
+                exit(1);
+            }
+            threads = val;
+            break;
+        }
+   
         case 'p': {
 
          char* end;
@@ -286,7 +299,6 @@ int main(int argc, char* const argv[]) {
                 fprintf(stderr, "Error: Non-numeric value provided for -p\n");
                 exit(1);
             }
-           // int val2 = atoi(optarg);
 
             if (val != 0 && val != 1) {
                 fprintf(stderr, "Error: Invalid value provided for -p (must be 0 or 1)\n");
@@ -320,17 +332,18 @@ int main(int argc, char* const argv[]) {
         }
     }
 
-    if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
-        fprintf(stderr, "Error: Not all required arguments are provided.\n");
-        fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
-        exit(1);
+  //check if any arguments are specified. if any are specified, then you need to enter all...they are "optional" because can run with just
+  //the defaults
+    if (argc>1)
+    { 
+      if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
+          fprintf(stderr, "Error: Not all required arguments are provided.\n");
+          fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
+          exit(1);
+       }
     }
 
-
-   //int threads=omp_get_max_threads();
-
-   int threads=8;
-
+   
     const char* optionType;
     const char* exerciseType;
 
@@ -338,8 +351,9 @@ int main(int argc, char* const argv[]) {
     exerciseType=(AM==1)?"American":"European";
 
  // Displaying each argument one line for each
+    printf("omp_get_max_threads: %d\n", aThreads);
     printf("Threads: %d\n", threads);
- 
+
     printf("Number of steps: %d\n", n);
     printf("Initial stock price: %.2f\n", S);
     printf("Strike price: %.2f\n", K);
@@ -352,45 +366,17 @@ int main(int argc, char* const argv[]) {
     Matrix *O = matrix_create_raw(n+1, n+1);
 
 
-   // struct timespec start, end;
-   // clock_gettime(CLOCK_MONOTONIC,&start);
-        // Calculate option price
+     // Calculate option price
 
      if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM,threads)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
-   // clock_gettime(CLOCK_MONOTONIC,&end);
-   // double time =get_time_diff(&start,&end);
-   // print_time(time);
-   // printf("\n");
-
-  // time_options_val_func("bopm-openmp: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM);
-   // printf("bopm-openmp speed is %.2f\n",time_mpi);
-
-//clock_t start_time, end_time;
-  //  double elapsed_time_ms;
-
-   // start_time = clock(); // Record the start time
-
-   // //if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
-
-   // end_time = clock(); // Record the end time
-
-   // elapsed_time_ms = (double)(end_time - start_time) / (CLOCKS_PER_SEC / 1000); // Calculate the elapsed time in milliseconds
-
-   // printf("Execution time: %.2f milliseconds\n", elapsed_time_ms);
-
-
-
-
-   
-printf("\n");
+ 
+    printf("\n");
     printf("%s %s options: %.2f\n", exerciseType, optionType, MATRIX_AT(O, 0, 0));
-printf("\n");
+    printf("\n");
 
 
-
-   time_options_val_func("bopm-openmp: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM,threads);
-
-
+    //get the times for benchmarking
+    time_options_val_func("bopm-openmp: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM,threads);
 
     return 0;
 }

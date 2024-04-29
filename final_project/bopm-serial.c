@@ -18,7 +18,7 @@
  * double r = 0.05; // Risk-free rate (for 5%)
  * double q = 0.03; //dividend yield (for 3%)
  * double v = 0.2; // Volatility (for 2%)
- * double T = 1; // Time to maturity (1=1 year)
+ * double T = 1; // Time to maturity (1=1 year)(use decimal for fraction of year 0.08333(~1 month))
  * int PC = 1; // 0 for call, 1 for put
  * int AM=1; //American = 1 European=0
  * 
@@ -33,8 +33,8 @@
  * 
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
  * https://www.unisalento.it/documents/20152/615419/Option+Pricing+-+A+Simplified+Approach.pdf
- * https://github.com/padraic00/Binomial-Options-Pricing-Model/tree/master
- * 
+ * https://www.codearmo.com/python-tutorial/options-trading-binomial-pricing-model
+ *
  * verified calculations are corrrect based on:
  * https://math.columbia.edu/~smirnov/options13.html
  * 
@@ -56,6 +56,12 @@
 #ifndef NUM_ITER_PER_RUN
 #define NUM_ITER_PER_RUN 2 // we take the average across this number of iterations for each run
 #endif
+
+
+/**
+ * Time a options value function.
+ */
+
 
 typedef bool (*options_val_func)(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM);
 
@@ -84,8 +90,17 @@ double time_options_val_func(const char* label, options_val_func func,
     return best_time;
 }
 
+/**
+ * Binomial lattice model for option pricing function.
+ * The option value will be in the matrix at (0,0) when the
+ * backward induction loop completes.
+ * 
+ */
 
 bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, double v, double T, int PC, int AM) {
+    
+
+    //calculate (u)p (d)own factors, dt(length of each time step) and p(probability of up movement)
     double dt = T / n;
     double u = exp((r - q) * dt + v * sqrt(dt));
     double d = exp((r - q) * dt - v * sqrt(dt));
@@ -160,6 +175,7 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
 }
 
 int main(int argc, char* const argv[]) {
+    //set default values
     int n = 1000; // Number of steps
     double S = 100; // Initial stock price
     double K = 100; // Strike price
@@ -170,9 +186,10 @@ int main(int argc, char* const argv[]) {
     int PC = 1; // 0 for call, 1 for put
     int AM=1;//American = 1 European=0
  
+   //flags to identify if all arguments are added 
+    int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
 
- int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
-
+    //parse input args
     int opt;
     while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
         char* end;
@@ -294,46 +311,24 @@ int main(int argc, char* const argv[]) {
             exit(1);
         }
     }
-
-    if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
-        fprintf(stderr, "Error: Not all required arguments are provided.\n");
-        fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
-        exit(1);
+  
+   //check if any arguments are specified. if any are specified, then you need to enter all...they are "optional" because can run with just
+   //the defaults
+ 
+    if (argc>1)
+    {
+        if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
+            fprintf(stderr, "Error: Not all required arguments are provided.\n");
+            fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
+            exit(1);
+        }
     }
-
-
-   // int n_flag = 0,s_flag=0,q_flag=0,k_flag=0,r_flag=0,v_flag=0,t_flag=0,p_flag=0,a_flag=0;
-    
-   // int opt;
-   // while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
-   //         char* end;
-   //         switch (opt) {
-   //         case 'n': n = strtoumax(optarg, &end, 10); n_flag=1; break;
-   //         case 's': S = atof(optarg); s_flag=1;break;
-   //         case 'q': q = atof(optarg); q_flag=1;break;
-   //         case 'k': K = atof(optarg); k_flag=1;break;
-   //         case 'r': r = atof(optarg);r_flag=1; break;
-   //         case 'v': v = atof(optarg); v_flag=1;break;
-   //         case 't': T = atof(optarg);t_flag=1; break;
-   //         case 'p': PC = atoi(optarg);p_flag=1;break;
-   //         case 'a': AM = atoi(optarg);a_flag=1;break;
-    //        default:
-   //         fprintf(stderr,"Unknown option:%c\n",opt);
-   //         }
-    //    }
-    
-    //    if (argc > 1)
-    //    {
-    //        if (!(n_flag && s_flag && q_flag && k_flag && r_flag && v_flag && t_flag && p_flag && a_flag)) {
-    //            fprintf(stderr, "Error: Not all required arguments are provided.\n");
-    //            fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
-    //        return 1;
-    //        }
-     //   }
 
         
     const char* optionType;
     const char* exerciseType;
+ 
+// Displaying each argument one line for each
 
     optionType=(PC==0)?"Call":"Put";
     exerciseType=(AM==1)?"American":"European";
@@ -350,22 +345,15 @@ int main(int argc, char* const argv[]) {
 
 
     Matrix *O = matrix_create_raw(n+1, n+1);
+     // Calculate option price
 
-   // if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
-//struct timespec start, end;
-  //  clock_gettime(CLOCK_MONOTONIC,&start);
-        // Calculate option price
     if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
-  //  clock_gettime(CLOCK_MONOTONIC,&end);
-  //  double time =get_time_diff(&start,&end);
-  //  print_time(time);
-  //  printf("\n");
-    //time_options_val_func("bopm-serial: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM);
 
-printf("\n");
+    printf("\n");
     printf("%s %s options: %.2f\n", exerciseType, optionType, MATRIX_AT(O, 0, 0));
-printf("\n");
+    printf("\n");
 
+    //get the times for benchmarking
 
     time_options_val_func("bopm-serial: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM);
 
