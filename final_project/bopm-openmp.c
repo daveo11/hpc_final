@@ -182,12 +182,21 @@ bool OptionsVal(Matrix* O, size_t n, double S, double q, double K, double r, dou
         free(tmp[i]);
     }
     free(tmp);
-
     return true;
 }
 
-void parse_arguments(int argc, char* const argv[], int n, double  S, double K, double q, double r, double v, double T, int PC, int AM) {
-    int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
+int main(int argc, char* const argv[]) {
+   int n = 1000; // Number of steps
+   double S = 100; // Initial stock price
+   double K = 100; // Strike price
+   double q = 0.03; //dividend yield
+   double r = 0.05; // Risk-free rate
+   double v = 0.2; // Volatility
+   double T = 1; // Time to maturity
+   int PC = 1; // 0 for call, 1 for put
+   int AM=1;//American = 1 European=0
+   
+ int n_flag = 0, s_flag = 0, q_flag = 0, k_flag = 0, r_flag = 0, v_flag = 0, t_flag = 0, p_flag = 0, a_flag = 0;
 
     int opt;
     while ((opt = getopt(argc, argv, "n:s:q:k:r:v:t:p:a:")) != -1) {
@@ -316,20 +325,6 @@ void parse_arguments(int argc, char* const argv[], int n, double  S, double K, d
         fprintf(stderr, "usage: %s [-n num-steps] [-s initial-stock-price] [-k strike-price] [-q dividend-yield] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call] [-a American=1 European=0(not 1)] input output\n", argv[0]);
         exit(1);
     }
-}
-
-int main(int argc, char* const argv[]) {
-   int n = 1000; // Number of steps
-   double S = 100; // Initial stock price
-   double K = 100; // Strike price
-   double q = 0.03; //dividend yield
-   double r = 0.05; // Risk-free rate
-   double v = 0.2; // Volatility
-   double T = 1; // Time to maturity
-   int PC = 1; // 0 for call, 1 for put
-   int AM=1;//American = 1 European=0
-   
-       parse_arguments(argc, argv, n, S, K, q, r, v, T, PC, AM);
 
 
    //int threads=omp_get_max_threads();
