@@ -1,0 +1,55 @@
+./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 
+Number of steps: 1000
+Initial stock price: 85.00
+Strike price: 90.00
+Dividend yield: 0.01
+Risk-free rate: 0.03
+Volatility: 0.20
+Time to maturity: 1.00
+Calculating American Put options
+American Put options: 8.83
+Cuda:      6.97 ms
+Cuda mem:      180 us
+cuda no mem: 6.79 ms
+
+./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 1 
+Number of steps: 1000
+Initial stock price: 85.00
+Strike price: 90.00
+Dividend yield: 0.01
+Risk-free rate: 0.03
+Volatility: 0.20
+Time to maturity: 1.00
+Calculating American Call options
+American Call options: 5.35
+Cuda:      6.92 ms
+Cuda mem:      179 us
+cuda no mem: 6.74 ms
+
+./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 0 
+Number of steps: 1000
+Initial stock price: 85.00
+Strike price: 90.00
+Dividend yield: 0.01
+Risk-free rate: 0.03
+Volatility: 0.20
+Time to maturity: 1.00
+Calculating European Put options
+European Put options: 8.54
+Cuda:      1.02 ms
+Cuda mem:      180 us
+cuda no mem: 841 us
+
+./bopm-cuda -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 0 
+Number of steps: 1000
+Initial stock price: 85.00
+Strike price: 90.00
+Dividend yield: 0.01
+Risk-free rate: 0.03
+Volatility: 0.20
+Time to maturity: 1.00
+Calculating European Call options
+European Call options: 5.35
+Cuda:      1.02 ms
+Cuda mem:      179 us
+cuda no mem: 838 us

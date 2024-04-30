@@ -8,7 +8,7 @@
  *     gcc -Wall -O3 -march=native bopm-serial.c matrix.c util.c  -o bopm-serial -lm
  * 
  * To run on your local machine:
- *    ./bopm_serial
+ *    ./bopm-serial
  * 
  * this will run with default values
  *
@@ -34,6 +34,7 @@
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
  * https://www.unisalento.it/documents/20152/615419/Option+Pricing+-+A+Simplified+Approach.pdf
  * https://www.codearmo.com/python-tutorial/options-trading-binomial-pricing-model
+ * https://www.nvidia.com/docs/io/116711/sc11-cuda-c-basics.pdf
  *
  * verified calculations are corrrect based on:
  * https://math.columbia.edu/~smirnov/options13.html

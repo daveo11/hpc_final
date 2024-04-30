@@ -8,7 +8,7 @@
  *      gcc -Wall -fopenmp -O3 -march=native bopm-openmp.c matrix.c util.c  -o bopm-openmp -lm
  * 
  * To run on your local machine:
- *    ./bopm_openmp
+ *    ./bopm-openmp
  * 
  * this will run with default values
  *
@@ -22,22 +22,21 @@
  * int PC = 1; // 0 for call, 1 for put
  * int AM=1; //American = 1 European=0
  * 
- * threads defaults to 8... can be changed with -c parameter
- * 
- * american put with 16 threads ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 -c 16
+ * threads defaults to 48, can be changed with -c parameter
  * 
  * to change values run with these params:
  * 
  * usage: ./bopm-openmp [-n num-steps] [-s initial-stock-price] [-q dividend-yield] [-k strike-price] [-r risk-free-rate] [-v volatility]  [-t time-to-maturity] [-p put-or-call(1 or 0)] -a [american 1 european 0] -c[threads] input output
  *  
- * american put ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1 
+ * american put ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 1
  * american call ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 1 
  * european put ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 1 -a 0 
- * european call ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 0 
+ * european call ./bopm-openmp -n 1000 -s 85 -k 90 -q 0.01 -r 0.03 -v 0.2 -t 1 -p 0 -a 0
  * 
  * https://en.wikipedia.org/wiki/Binomial_options_pricing_model
  * https://www.unisalento.it/documents/20152/615419/Option+Pricing+-+A+Simplified+Approach.pdf
  * https://www.codearmo.com/python-tutorial/options-trading-binomial-pricing-model
+ * https://www.nvidia.com/docs/io/116711/sc11-cuda-c-basics.pdf
  * 
  * verified calculations are corrrect based on:
  * https://math.columbia.edu/~smirnov/options13.html
@@ -51,7 +50,6 @@
 #include <inttypes.h>
 #include <omp.h> // Include OpenMP header
 
-
 #include "matrix.h"
 #include "util.h"
 
@@ -62,7 +60,6 @@
 #ifndef NUM_ITER_PER_RUN
 #define NUM_ITER_PER_RUN 2 // we take the average across this number of iterations for each run
 #endif
-
 
 /**
  * Time a options value function.
@@ -196,8 +193,8 @@ int main(int argc, char* const argv[]) {
    //opm_get_max_threads for information
    int aThreads=omp_get_max_threads();
 
-   //default to 8 threads can be modified to match capabilities of hardware
-   int threads=8;
+   //default to 48 threads can be modified to match capabilities of hardware
+   int threads=48;
    
     //parse input args
     int opt;
@@ -280,7 +277,7 @@ int main(int argc, char* const argv[]) {
             t_flag = 1;
             break;
         }
-             case 'c': {
+        case 'c': {
             char* end;
             double val = strtod(optarg, &end);
             if (*end != '\0') {
@@ -290,9 +287,7 @@ int main(int argc, char* const argv[]) {
             threads = val;
             break;
         }
-   
         case 'p': {
-
          char* end;
             double val = strtod(optarg, &end);
             if (*end != '\0') {
@@ -309,15 +304,12 @@ int main(int argc, char* const argv[]) {
             break;
         }
         case 'a': {
-
          char* end;
             double val = strtod(optarg, &end);
             if (*end != '\0') {
                 fprintf(stderr, "Error: Non-numeric value provided for -a\n");
                 exit(1);
             }
-   
-            //int val2 = atoi(optarg);
             if (val != 0 && val != 1) {
                 fprintf(stderr, "Error: Invalid value provided for -a (must be 0 or 1)\n");
                 exit(1);
@@ -343,14 +335,13 @@ int main(int argc, char* const argv[]) {
        }
     }
 
-   
     const char* optionType;
     const char* exerciseType;
 
     optionType=(PC==0)?"Call":"Put";
     exerciseType=(AM==1)?"American":"European";
 
- // Displaying each argument one line for each
+    // Displaying each argument one line for each
     printf("omp_get_max_threads: %d\n", aThreads);
     printf("Threads: %d\n", threads);
 
@@ -365,16 +356,13 @@ int main(int argc, char* const argv[]) {
 
     Matrix *O = matrix_create_raw(n+1, n+1);
 
-
      // Calculate option price
-
      if (!OptionsVal(O,n, S,q, K, r, v, T, PC,AM,threads)) { fprintf(stderr, "Failed to perform Options Value\n"); return 1; }
  
     printf("\n");
     printf("%s %s options: %.2f\n", exerciseType, optionType, MATRIX_AT(O, 0, 0));
     printf("\n");
-
-
+    
     //get the times for benchmarking
     time_options_val_func("bopm-openmp: ", OptionsVal, O,n, S,q, K, r, v, T, PC,AM,threads);
 
